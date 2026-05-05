@@ -1,21 +1,20 @@
 """
-embeds.py — Pure functions mapping API JSON → discord.Embed objects.
-Also builds quickchart.io URLs for placement histograms.
+embeds.py — Pure functions mapping API JSON to discord.Embed objects.
 """
 
 import random
 import urllib.parse
 import json
 import discord
-from datetime import datetime
+from datetime import datetime, timezone
 
-# ── Brand colors ───────────────────────────────────────────────
 ORANGE = 0xFF6600
 GOLD   = 0xFFAA00
 RED    = 0xFF3333
 GREEN  = 0x00FF88
 
-# ── Flavor text (subtle, not "loading") ───────────────────────
+LOGO = "https://backtestingmax.com/favicon.ico"
+
 CHALLENGE_SUBTITLES = [
     "Your next edge awaits.",
     "Time to prove your strategy.",
@@ -37,20 +36,19 @@ WINNER_SUBTITLES = [
     "Consistency wins. Here's proof.",
 ]
 
-# ── Helpers ────────────────────────────────────────────────────
-def rank_emoji(rank: int) -> str:
+def rank_emoji(rank):
     return {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"**#{rank}**")
 
-def pro_badge(status: str) -> str:
-    return "  `💎 PRO`" if status == "pro" else ""
+def pro_badge(status):
+    s = str(status).lower()
+    return "  `💎 PRO`" if s == "pro" else ""
 
-def format_countdown(seconds: int) -> str:
-    h, rem = divmod(seconds, 3600)
-    m, s   = divmod(rem, 60)
+def format_countdown(seconds):
+    h, rem = divmod(int(seconds), 3600)
+    m, s = divmod(rem, 60)
     return f"{h}h {m}m {s}s"
 
-def placement_chart_url(placements: dict) -> str:
-    """Build a quickchart.io bar chart URL for placement distribution."""
+def placement_chart_url(placements):
     labels = ["1st", "2nd", "3rd", "Top 10"]
     values = [
         placements.get("1", 0),
@@ -72,12 +70,7 @@ def placement_chart_url(placements: dict) -> str:
         "options": {
             "plugins": {
                 "legend": {"display": False},
-                "title": {
-                    "display": True,
-                    "text": "Placement History",
-                    "color": "#FFFFFF",
-                    "font": {"size": 16}
-                }
+                "title": {"display": True, "text": "Placement History", "color": "#FFFFFF", "font": {"size": 16}}
             },
             "scales": {
                 "x": {"ticks": {"color": "#CCCCCC"}, "grid": {"color": "#333333"}},
@@ -90,124 +83,125 @@ def placement_chart_url(placements: dict) -> str:
     return f"https://quickchart.io/chart?c={encoded}&backgroundColor=%231A1A1A&width=400&height=200"
 
 
-# ── Embeds ─────────────────────────────────────────────────────
-
-def challenge_embed(data: dict) -> discord.Embed:
+def challenge_embed(data):
     embed = discord.Embed(
         title="🎯  Daily Backtest Challenge",
         description=f"*{random.choice(CHALLENGE_SUBTITLES)}*",
         color=ORANGE
     )
-    embed.add_field(name="📅  Date",      value=f"```{data['date']}```",                              inline=True)
-    embed.add_field(name="📊  Symbol",    value=f"```{data['symbol'].upper()}```",                    inline=True)
-    embed.add_field(name="⏳  Resets In", value=f"```{format_countdown(data['seconds_until_reset'])}```", inline=True)
-    embed.add_field(
-        name="\u200b",
-        value="> Backtest this symbol and submit your results to compete on the leaderboard.",
-        inline=False
-    )
+    embed.set_thumbnail(url=LOGO)
+    embed.add_field(name="📅  Date",      value=f"```{data.get('date', 'N/A')}```", inline=True)
+    embed.add_field(name="📊  Symbol",    value=f"```{data.get('symbol', 'N/A').upper()}```", inline=True)
+    embed.add_field(name="⏳  Resets In", value=f"```{format_countdown(data.get('seconds_until_reset', 0))}```", inline=True)
+    embed.add_field(name="\u200b", value="> Backtest this symbol and submit your results to compete on the leaderboard.", inline=False)
     embed.set_footer(text="BacktestingMax  •  Daily Challenge")
     return embed
 
 
-def leaderboard_embed(data: list, date: str) -> discord.Embed:
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+def leaderboard_embed(data, date, page=0):
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     label = "Today" if date == today else date
-    embed = discord.Embed(
-        title=f"🏆  Leaderboard  —  {label}",
-        description=f"*{random.choice(LB_SUBTITLES)}*",
-        color=GOLD
-    )
+    embed = discord.Embed(title=f"🏆  Leaderboard  —  {label}", color=GOLD)
+    embed.set_thumbnail(url=LOGO)
     if not data:
         embed.description = "*No entries yet for this date.*"
         return embed
     lines = []
-    for e in data[:10]:
-        arrow = "▲" if e["profitPercent"] >= 0 else "▼"
-        name  = e["username"] + pro_badge(e.get("subscriptionStatus", ""))
-        lines.append(
-            f"{rank_emoji(e['rank'])}  {name}\n"
-            f"　`{arrow} {e['profitPercent']:+.2f}%`  ·  Win Rate `{e['winRate']:.1f}%`"
-        )
-    embed.description = (f"*{random.choice(LB_SUBTITLES)}*\n\n" + "\n\n".join(lines))
-    embed.set_footer(text=f"BacktestingMax  •  Rankings for {label}")
+    start = page * 10
+    for i, e in enumerate(data[:10]):
+        profit   = e.get("profitPercent", e.get("profit", 0))
+        win_rate = e.get("winRate", 0)
+        username = e.get("username", "Unknown")
+        status   = e.get("subscription", "")
+        symbol   = e.get("symbol", "")
+        arrow    = "▲" if profit >= 0 else "▼"
+        name     = str(username) + pro_badge(status)
+        sym_tag  = f"  `{symbol}`" if symbol else ""
+        lines.append(f"{rank_emoji(start + i + 1)}  {name}{sym_tag}\n　`{arrow} {profit:+.2f}%`  ·  Win Rate `{win_rate:.1f}%`")
+    embed.description = f"*{random.choice(LB_SUBTITLES)}*\n\n" + "\n\n".join(lines)
+    total = len(data) if hasattr(data, '__len__') else 10
+    embed.set_footer(text=f"BacktestingMax  •  Page {page+1}  (#{start+1}–#{start+len(data[:10])})")
     return embed
 
 
-def lifetime_embed(data: list) -> discord.Embed:
-    embed = discord.Embed(
-        title="🌟  All-Time Participation Leaders",
-        description="*The most dedicated traders on BacktestingMax.*",
-        color=ORANGE
-    )
+def lifetime_embed(data, page=0):
+    embed = discord.Embed(title="🌟  All-Time Participation Leaders", color=ORANGE)
+    embed.set_thumbnail(url=LOGO)
+    if not data:
+        embed.description = "*No data available.*"
+        return embed
     lines = []
-    for e in data[:10]:
-        name = e["username"] + pro_badge(e.get("subscriptionStatus", ""))
-        lines.append(
-            f"{rank_emoji(e['rank'])}  {name}\n"
-            f"　`{e['totalDailyChallenges']} challenges`  ·  Avg `{e['avgProfitPercent']:+.1f}%`"
-        )
+    start = page * 10
+    for i, e in enumerate(data[:10]):
+        username = e.get("username", "Unknown")
+        total    = e.get("totalDailyChallenges", 0)
+        status   = e.get("subscription", "")
+        name     = str(username) + pro_badge(status)
+        lines.append(f"{rank_emoji(start + i + 1)}  {name}\n　`{total} challenges`")
     embed.description = "*The most dedicated traders on BacktestingMax.*\n\n" + "\n\n".join(lines)
-    embed.set_footer(text="BacktestingMax  •  Lifetime Stats")
+    embed.set_footer(text=f"BacktestingMax  •  Page {page+1}  (#{start+1}–#{start+len(data[:10])})")
     return embed
 
 
-def stats_embed(data: dict) -> discord.Embed:
-    name  = data["username"]
-    p     = data.get("placements", {})
-    streak = data.get("currentStreak", 0)
+def stats_embed(data):
+    name    = data.get("username", "Unknown")
+    p       = data.get("placements", {})
+    streak  = data.get("currentStreak", data.get("streak", 0))
+    completed = data.get("completedChallenges", data.get("completed", 0))
+    avg     = data.get("avgProfitPercent", data.get("avg_profit", 0))
+    best    = data.get("bestProfitPercent", data.get("best_profit", 0))
+    wr      = data.get("winRate", data.get("win_rate", 0))
+    status  = data.get("subscriptionStatus", data.get("subscription", ""))
 
     badges = []
-    if data["completedChallenges"] >= 100:      badges.append("`💯 Century Club`")
-    if p.get("1", 0) >= 5:                       badges.append("`👑 5x Champion`")
-    if data["winRate"] >= 70:                    badges.append("`🎯 Sharp Shooter`")
-    if streak >= 10:                              badges.append(f"`🔥 {streak}-Day Streak`")
-    elif streak >= 5:                             badges.append(f"`⚡ {streak}-Day Streak`")
-    if data.get("subscriptionStatus") == "pro":  badges.append("`💎 Pro Member`")
+    if completed >= 100:           badges.append("`💯 Century Club`")
+    if p.get("1", 0) >= 5:         badges.append("`👑 5x Champion`")
+    if wr >= 70:                   badges.append("`🎯 Sharp Shooter`")
+    if streak >= 10:               badges.append(f"`🔥 {streak}-Day Streak`")
+    elif streak >= 5:              badges.append(f"`⚡ {streak}-Day Streak`")
+    if str(status).lower() == "pro": badges.append("`💎 Pro Member`")
 
-    embed = discord.Embed(
-        title=f"📊  {name}",
-        color=ORANGE
-    )
-    embed.add_field(name="Challenges",   value=f"```{data['completedChallenges']}```",      inline=True)
-    embed.add_field(name="Win Rate",     value=f"```{data['winRate']:.1f}%```",             inline=True)
-    embed.add_field(name="Avg Profit",   value=f"```{data['avgProfitPercent']:+.2f}%```",   inline=True)
-    embed.add_field(name="Best Profit",  value=f"```{data['bestProfitPercent']:+.2f}%```",  inline=True)
-    embed.add_field(name="🥇 1st Place", value=f"```{p.get('1', 0)}x```",                   inline=True)
-    embed.add_field(name="Top 10",       value=f"```{p.get('top10', 0)}x```",               inline=True)
-
+    embed = discord.Embed(title=f"📊  {name}", color=ORANGE)
+    embed.set_thumbnail(url=LOGO)
+    embed.add_field(name="Challenges",   value=f"```{completed}```",      inline=True)
+    embed.add_field(name="Win Rate",     value=f"```{wr:.1f}%```",        inline=True)
+    embed.add_field(name="Avg Profit",   value=f"```{avg:+.2f}%```",      inline=True)
+    embed.add_field(name="Best Profit",  value=f"```{best:+.2f}%```",     inline=True)
+    embed.add_field(name="🥇 1st Place", value=f"```{p.get('1', 0)}x```", inline=True)
+    embed.add_field(name="Top 10",       value=f"```{p.get('top10', 0)}x```", inline=True)
     if streak > 0:
         embed.add_field(name="🔥 Current Streak", value=f"```{streak} days```", inline=False)
-
     if badges:
         embed.add_field(name="🏅  Achievements", value="  ".join(badges), inline=False)
-
-    # Placement histogram via quickchart.io
-    chart_url = placement_chart_url(p)
-    embed.set_image(url=chart_url)
+    embed.set_image(url=placement_chart_url(p))
     embed.set_footer(text="BacktestingMax  •  Player Profile")
     return embed
 
 
-def winner_announcement_embed(data: list, date: str) -> discord.Embed:
+def winner_announcement_embed(data, date):
     embed = discord.Embed(
         title=f"🏆  Daily Winners  —  {date}",
         description=f"*{random.choice(WINNER_SUBTITLES)}*",
         color=GOLD
     )
-    for e in data[:3]:
-        arrow = "▲" if e["profitPercent"] >= 0 else "▼"
-        name  = e["username"] + pro_badge(e.get("subscriptionStatus", ""))
+    embed.set_thumbnail(url=LOGO)
+    for i, e in enumerate(data[:3]):
+        profit   = e.get("profitPercent", e.get("profit", 0))
+        win_rate = e.get("winRate", 0)
+        username = e.get("username", "Unknown")
+        status   = e.get("subscription", "")
+        arrow    = "▲" if profit >= 0 else "▼"
+        name     = str(username) + pro_badge(status)
         embed.add_field(
-            name=f"{rank_emoji(e['rank'])}  {name}",
-            value=f"`{arrow} {e['profitPercent']:+.2f}%` profit  ·  `{e.get('winRate', 0):.1f}%` win rate",
+            name=f"{rank_emoji(i+1)}  {name}",
+            value=f"`{arrow} {profit:+.2f}%` profit  ·  `{win_rate:.1f}%` win rate",
             inline=False
         )
     embed.set_footer(text="BacktestingMax  •  Daily Challenge Results")
     return embed
 
 
-def error_embed(message: str) -> discord.Embed:
+def error_embed(message):
     return discord.Embed(
         title="⚠️  Something went wrong",
         description=f"```{message}```",

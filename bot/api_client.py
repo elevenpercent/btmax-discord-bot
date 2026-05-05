@@ -16,23 +16,14 @@ logger = logging.getLogger("btmax.api")
 
 # ── TTL constants (seconds) ────────────────────────────────────
 TTL_CHALLENGE  = 300    # 5 min
-TTL_LB_TODAY   = 60     # 1 min  — live data
-TTL_LB_PAST    = 86400  # 24 hr  — historical, never changes
+TTL_LB_TODAY   = 60     # 1 min
+TTL_LB_PAST    = 86400  # 24 hr
 TTL_LIFETIME   = 300    # 5 min
 TTL_SEARCH     = 300    # 5 min
 TTL_USER_STATS = 300    # 5 min
 
 
 class APIClient:
-    """
-    Thread-safe, concurrency-safe API client with:
-    - Serialised request queue (enforces 5s spacing)
-    - TTL-based in-memory cache
-    - Graceful 429 handling with Retry-After support
-    - Automatic retry on transient 5xx errors
-    - Structured performance logging
-    """
-
     def __init__(self, base_url: str, api_key: str):
         self.base_url = base_url.rstrip("/")
         self.api_key  = api_key
@@ -40,15 +31,13 @@ class APIClient:
         self._lock   = asyncio.Lock()
         self._last   = 0.0
         self._session: Optional[aiohttp.ClientSession] = None
-
-        # Performance counters
         self._hits   = 0
         self._misses = 0
         self._errors = 0
 
     async def start(self):
         self._session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=10)
+            timeout=aiohttp.ClientTimeout(total=90)
         )
         logger.info("API client ready. Base URL: %s", self.base_url)
 
@@ -60,7 +49,6 @@ class APIClient:
             self._hits, self._misses, self._errors
         )
 
-    # ── Cache ──────────────────────────────────────────────────
     def _get(self, key: str) -> Optional[Any]:
         entry = self._cache.get(key)
         if entry and time.monotonic() < entry[1]:
@@ -74,10 +62,8 @@ class APIClient:
     def _set(self, key: str, data: Any, ttl: int):
         self._cache[key] = (data, time.monotonic() + ttl)
 
-    # ── HTTP ───────────────────────────────────────────────────
     async def _request(self, path: str, params: dict = None) -> Any:
         async with self._lock:
-            # Enforce 5-second gap between requests
             elapsed = time.monotonic() - self._last
             if self._last > 0 and elapsed < 5.0:
                 wait = 5.0 - elapsed
@@ -97,10 +83,7 @@ class APIClient:
 
                         if resp.status == 429:
                             retry_after = int(resp.headers.get("Retry-After", 5))
-                            logger.warning(
-                                "429 Rate-limited on %s — waiting %ds (attempt %d)",
-                                path, retry_after, attempt + 1
-                            )
+                            logger.warning("429 on %s — waiting %ds", path, retry_after)
                             if attempt == 0:
                                 await asyncio.sleep(retry_after)
                                 continue
@@ -118,10 +101,7 @@ class APIClient:
                         resp.raise_for_status()
                         data = await resp.json()
                         self._last = time.monotonic()
-                        logger.info(
-                            "GET %s → %d  %.0fms",
-                            path, resp.status, latency
-                        )
+                        logger.info("GET %s → %d  %.0fms", path, resp.status, latency)
                         return data
 
                 except aiohttp.ClientError as e:
@@ -134,47 +114,53 @@ class APIClient:
         cached = self._get(key)
         if cached is not None:
             return cached
-        data = await self._request("/daily_challenge")
+        data = await self._request("/api/v1/daily_challenge")
         self._set(key, data, TTL_CHALLENGE)
         return data
 
     async def get_leaderboard(self, date: str, limit: int = 10) -> list:
         from datetime import datetime
         today = datetime.utcnow().strftime("%Y-%m-%d")
-        key   = f"lb:{date}:{limit}"
+        key = f"lb:{date}:{limit}"
         cached = self._get(key)
         if cached is not None:
             return cached
         data = await self._request(
-            "/daily_challenge/leaderboard",
+            "/api/v1/daily_challenge/leaderboard",
             {"date": date, "limit": limit}
         )
-        self._set(key, data, TTL_LB_TODAY if date == today else TTL_LB_PAST)
-        return data
+        # Unwrap envelope: {"date": ..., "limit": ..., "entries": [...]}
+        entries = data.get("entries", data) if isinstance(data, dict) else data
+        self._set(key, entries, TTL_LB_TODAY if date == today else TTL_LB_PAST)
+        return entries
 
     async def get_lifetime(self) -> list:
         key = "lifetime"
         cached = self._get(key)
         if cached is not None:
             return cached
-        data = await self._request("/daily_challenge/lifetime")
-        self._set(key, data, TTL_LIFETIME)
-        return data
+        data = await self._request("/api/v1/daily_challenge/lifetime")
+        # Unwrap envelope: {"limit": ..., "entries": [...]}
+        entries = data.get("entries", data) if isinstance(data, dict) else data
+        self._set(key, entries, TTL_LIFETIME)
+        return entries
 
     async def search_users(self, query: str) -> list:
         key = f"search:{query.lower()}"
         cached = self._get(key)
         if cached is not None:
             return cached
-        data = await self._request("/users/search", {"q": query})
-        self._set(key, data, TTL_SEARCH)
-        return data
+        data = await self._request("/api/v1/users/search", {"q": query})
+        # Unwrap envelope: {"q": ..., "limit": ..., "results": [...]}
+        results = data.get("results", data) if isinstance(data, dict) else data
+        self._set(key, results, TTL_SEARCH)
+        return results
 
     async def get_user_stats(self, user_id: str) -> dict:
         key = f"stats:{user_id}"
         cached = self._get(key)
         if cached is not None:
             return cached
-        data = await self._request(f"/users/{user_id}/daily_challenge_stats")
+        data = await self._request(f"/api/v1/users/{user_id}/daily_challenge_stats")
         self._set(key, data, TTL_USER_STATS)
         return data
