@@ -53,9 +53,6 @@ class BTMaxBot(discord.Client):
 
     async def on_ready(self):
         logger.info("Online: %s (%s)", self.user, self.user.id)
-        await self.change_presence(activity=discord.Activity(
-            type=discord.ActivityType.watching, name="the markets 📈"
-        ))
 
     async def close(self):
         await self.api.close()
@@ -167,6 +164,20 @@ class LeaderboardView(discord.ui.View):
             select.callback = self._jump
             self.add_item(select)
 
+        from datetime import timedelta
+        today = datetime.now(timezone.utc)
+        date_options = []
+        for i in range(14):
+            d = today - timedelta(days=i)
+            label = "Today" if i == 0 else ("Yesterday" if i == 1 else d.strftime("%b %d, %Y"))
+            val = d.strftime("%Y-%m-%d")
+            date_options.append(discord.SelectOption(
+                label=label, value=val, default=(val == self.date)
+            ))
+        date_select = discord.ui.Select(placeholder="Pick a date...", options=date_options, row=2)
+        date_select.callback = self._pick_date
+        self.add_item(date_select)
+
     async def _prev(self, interaction):
         self.page -= 1
         await self._update(interaction)
@@ -178,6 +189,23 @@ class LeaderboardView(discord.ui.View):
     async def _jump(self, interaction):
         self.page = int(interaction.data["values"][0])
         await self._update(interaction)
+
+    async def _pick_date(self, interaction):
+        new_date = interaction.data["values"][0]
+        await interaction.response.edit_message(content="Loading...", embed=None, view=None)
+        try:
+            data = await bot.api.get_leaderboard(new_date, limit=100)
+            self.date = new_date
+            self.page = 0
+            self.data = data
+            self._rebuild()
+            await interaction.edit_original_response(
+                content=None,
+                embed=leaderboard_embed(data[:10], new_date, page=0),
+                view=self
+            )
+        except Exception as e:
+            await interaction.edit_original_response(content=None, embed=error_embed(str(e)), view=None)
 
     async def _update(self, interaction):
         start = self.page * 10

@@ -1,7 +1,3 @@
-"""
-embeds.py — Pure functions mapping API JSON to discord.Embed objects.
-"""
-
 import random
 import urllib.parse
 import json
@@ -9,32 +5,9 @@ import discord
 from datetime import datetime, timezone
 
 ORANGE = 0xFF6600
-GOLD   = 0xFFAA00
 RED    = 0xFF3333
-GREEN  = 0x00FF88
 
 LOGO = "https://backtestingmax.com/favicon.ico"
-
-CHALLENGE_SUBTITLES = [
-    "Your next edge awaits.",
-    "Time to prove your strategy.",
-    "Can you beat the market today?",
-    "One symbol. One chance. Let's go.",
-    "Study the chart. Trust the process.",
-]
-
-LB_SUBTITLES = [
-    "Ranked by profit percentage.",
-    "The market doesn't lie.",
-    "Who's on top today?",
-    "Separating signal from noise.",
-]
-
-WINNER_SUBTITLES = [
-    "The market has spoken.",
-    "Another day, another edge.",
-    "Consistency wins. Here's proof.",
-]
 
 def rank_emoji(rank):
     return {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"**#{rank}**")
@@ -63,7 +36,7 @@ def placement_chart_url(placements):
             "datasets": [{
                 "label": "Placements",
                 "data": values,
-                "backgroundColor": ["#FF6600", "#FFAA00", "#FF8800", "#FF4400"],
+                "backgroundColor": ["#FF6600", "#FF8800", "#FF4400", "#FF5500"],
                 "borderRadius": 4,
             }]
         },
@@ -84,16 +57,10 @@ def placement_chart_url(placements):
 
 
 def challenge_embed(data):
-    embed = discord.Embed(
-        title="🎯  Daily Backtest Challenge",
-        description=f"*{random.choice(CHALLENGE_SUBTITLES)}*",
-        color=ORANGE
-    )
-    embed.set_thumbnail(url=LOGO)
+    embed = discord.Embed(title="🎯  Daily Backtest Challenge", color=ORANGE)
     embed.add_field(name="📅  Date",      value=f"```{data.get('date', 'N/A')}```", inline=True)
     embed.add_field(name="📊  Symbol",    value=f"```{data.get('symbol', 'N/A').upper()}```", inline=True)
     embed.add_field(name="⏳  Resets In", value=f"```{format_countdown(data.get('seconds_until_reset', 0))}```", inline=True)
-    embed.add_field(name="\u200b", value="> Backtest this symbol and submit your results to compete on the leaderboard.", inline=False)
     embed.set_footer(text="BacktestingMax  •  Daily Challenge")
     return embed
 
@@ -101,8 +68,7 @@ def challenge_embed(data):
 def leaderboard_embed(data, date, page=0):
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     label = "Today" if date == today else date
-    embed = discord.Embed(title=f"🏆  Leaderboard  —  {label}", color=GOLD)
-    embed.set_thumbnail(url=LOGO)
+    embed = discord.Embed(title=f"🏆  Leaderboard  —  {label}", color=ORANGE)
     if not data:
         embed.description = "*No entries yet for this date.*"
         return embed
@@ -118,15 +84,13 @@ def leaderboard_embed(data, date, page=0):
         name     = str(username) + pro_badge(status)
         sym_tag  = f"  `{symbol}`" if symbol else ""
         lines.append(f"{rank_emoji(start + i + 1)}  {name}{sym_tag}\n　`{arrow} {profit:+.2f}%`  ·  Win Rate `{win_rate:.1f}%`")
-    embed.description = f"*{random.choice(LB_SUBTITLES)}*\n\n" + "\n\n".join(lines)
-    total = len(data) if hasattr(data, '__len__') else 10
-    embed.set_footer(text=f"BacktestingMax  •  Page {page+1}  (#{start+1}–#{start+len(data[:10])})")
+    embed.description = "\n\n".join(lines)
+    embed.set_footer(text=f"BacktestingMax  •  Page {page+1}  (#{start+1}–#{start+len(data[:10])})  •  For older dates: /leaderboard [date]")
     return embed
 
 
 def lifetime_embed(data, page=0):
     embed = discord.Embed(title="🌟  All-Time Participation Leaders", color=ORANGE)
-    embed.set_thumbnail(url=LOGO)
     if not data:
         embed.description = "*No data available.*"
         return embed
@@ -138,36 +102,35 @@ def lifetime_embed(data, page=0):
         status   = e.get("subscription", "")
         name     = str(username) + pro_badge(status)
         lines.append(f"{rank_emoji(start + i + 1)}  {name}\n　`{total} challenges`")
-    embed.description = "*The most dedicated traders on BacktestingMax.*\n\n" + "\n\n".join(lines)
-    embed.set_footer(text=f"BacktestingMax  •  Page {page+1}  (#{start+1}–#{start+len(data[:10])})")
+    embed.description = "\n\n".join(lines)
+    embed.set_footer(text=f"BacktestingMax  •  Page {page+1}  (#{start+1}–#{start+len(data[:10])})  •  For older dates: /leaderboard [date]")
     return embed
 
 
 def stats_embed(data):
-    name    = data.get("username", "Unknown")
-    p       = data.get("placements", {})
-    streak  = data.get("currentStreak", data.get("streak", 0))
+    name      = data.get("username", "Unknown")
+    p         = data.get("placements", {})
+    streak    = data.get("currentStreak", data.get("streak", 0))
     completed = data.get("completedChallenges", data.get("completed", 0))
-    avg     = data.get("avgProfitPercent", data.get("avg_profit", 0))
-    best    = data.get("bestProfitPercent", data.get("best_profit", 0))
-    wr      = data.get("winRate", data.get("win_rate", 0))
-    status  = data.get("subscriptionStatus", data.get("subscription", ""))
+    avg       = data.get("avgProfitPercent", data.get("avg_profit", 0))
+    best      = data.get("bestProfitPercent", data.get("best_profit", 0))
+    wr        = data.get("winRate", data.get("win_rate", 0))
+    status    = data.get("subscriptionStatus", data.get("subscription", ""))
 
     badges = []
-    if completed >= 100:           badges.append("`💯 Century Club`")
-    if p.get("1", 0) >= 5:         badges.append("`👑 5x Champion`")
-    if wr >= 70:                   badges.append("`🎯 Sharp Shooter`")
-    if streak >= 10:               badges.append(f"`🔥 {streak}-Day Streak`")
-    elif streak >= 5:              badges.append(f"`⚡ {streak}-Day Streak`")
+    if completed >= 100:             badges.append("`💯 Century Club`")
+    if p.get("1", 0) >= 5:           badges.append("`👑 5x Champion`")
+    if wr >= 70:                     badges.append("`🎯 Sharp Shooter`")
+    if streak >= 10:                 badges.append(f"`🔥 {streak}-Day Streak`")
+    elif streak >= 5:                badges.append(f"`⚡ {streak}-Day Streak`")
     if str(status).lower() == "pro": badges.append("`💎 Pro Member`")
 
     embed = discord.Embed(title=f"📊  {name}", color=ORANGE)
-    embed.set_thumbnail(url=LOGO)
-    embed.add_field(name="Challenges",   value=f"```{completed}```",      inline=True)
-    embed.add_field(name="Win Rate",     value=f"```{wr:.1f}%```",        inline=True)
-    embed.add_field(name="Avg Profit",   value=f"```{avg:+.2f}%```",      inline=True)
-    embed.add_field(name="Best Profit",  value=f"```{best:+.2f}%```",     inline=True)
-    embed.add_field(name="🥇 1st Place", value=f"```{p.get('1', 0)}x```", inline=True)
+    embed.add_field(name="Challenges",   value=f"```{completed}```",          inline=True)
+    embed.add_field(name="Win Rate",     value=f"```{wr:.1f}%```",            inline=True)
+    embed.add_field(name="Avg Profit",   value=f"```{avg:+.2f}%```",          inline=True)
+    embed.add_field(name="Best Profit",  value=f"```{best:+.2f}%```",         inline=True)
+    embed.add_field(name="🥇 1st Place", value=f"```{p.get('1', 0)}x```",     inline=True)
     embed.add_field(name="Top 10",       value=f"```{p.get('top10', 0)}x```", inline=True)
     if streak > 0:
         embed.add_field(name="🔥 Current Streak", value=f"```{streak} days```", inline=False)
@@ -179,12 +142,7 @@ def stats_embed(data):
 
 
 def winner_announcement_embed(data, date):
-    embed = discord.Embed(
-        title=f"🏆  Daily Winners  —  {date}",
-        description=f"*{random.choice(WINNER_SUBTITLES)}*",
-        color=GOLD
-    )
-    embed.set_thumbnail(url=LOGO)
+    embed = discord.Embed(title=f"🏆  Daily Winners  —  {date}", color=ORANGE)
     for i, e in enumerate(data[:3]):
         profit   = e.get("profitPercent", e.get("profit", 0))
         win_rate = e.get("winRate", 0)

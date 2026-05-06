@@ -37,7 +37,7 @@ class APIClient:
 
     async def start(self):
         self._session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=90)
+            timeout=aiohttp.ClientTimeout(total=10)
         )
         logger.info("API client ready. Base URL: %s", self.base_url)
 
@@ -131,6 +131,7 @@ class APIClient:
         )
         # Unwrap envelope: {"date": ..., "limit": ..., "entries": [...]}
         entries = data.get("entries", data) if isinstance(data, dict) else data
+        logger.info("Leaderboard total entries: %d", len(entries))
         self._set(key, entries, TTL_LB_TODAY if date == today else TTL_LB_PAST)
         return entries
 
@@ -139,7 +140,7 @@ class APIClient:
         cached = self._get(key)
         if cached is not None:
             return cached
-        data = await self._request("/api/v1/daily_challenge/lifetime")
+        data = await self._request("/api/v1/daily_challenge/lifetime", {"limit": 100})
         # Unwrap envelope: {"limit": ..., "entries": [...]}
         entries = data.get("entries", data) if isinstance(data, dict) else data
         self._set(key, entries, TTL_LIFETIME)
