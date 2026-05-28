@@ -50,7 +50,7 @@ btmax-discord-bot/
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/yourusername/btmax-discord-bot
+git clone https://github.com/elevenpercent/btmax-discord-bot
 cd btmax-discord-bot
 pip install -r requirements.txt
 
