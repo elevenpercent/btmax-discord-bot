@@ -44,9 +44,10 @@ class BTMaxBot(discord.Client):
 
     async def setup_hook(self):
         await self.api.start()
-        # Sync globally so commands work in any server
-        await self.tree.sync()
-        logger.info("Commands synced globally.")
+        guild = discord.Object(id=1410323690826240132)
+        self.tree.copy_global_to(guild=guild)
+        await self.tree.sync(guild=guild)
+        logger.info("Commands synced to guild.")
         daily_post.start()
 
     async def on_ready(self):
