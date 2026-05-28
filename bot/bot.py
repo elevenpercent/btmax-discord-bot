@@ -30,7 +30,6 @@ logger = logging.getLogger("btmax.bot")
 DISCORD_TOKEN           = os.getenv("DISCORD_TOKEN")
 API_BASE_URL            = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 API_KEY                 = os.getenv("API_KEY", "mock-api-key-12345")
-GUILD_ID                = int(os.getenv("GUILD_ID", "0"))
 ANNOUNCEMENT_CHANNEL_ID = int(os.getenv("ANNOUNCEMENT_CHANNEL_ID", "0"))
 
 if not DISCORD_TOKEN:
@@ -45,10 +44,9 @@ class BTMaxBot(discord.Client):
 
     async def setup_hook(self):
         await self.api.start()
-        guild = discord.Object(id=GUILD_ID)
-        self.tree.copy_global_to(guild=guild)
-        await self.tree.sync(guild=guild)
-        logger.info("Commands synced to guild %d", GUILD_ID)
+        # Sync globally so commands work in any server
+        await self.tree.sync()
+        logger.info("Commands synced globally.")
         daily_post.start()
 
     async def on_ready(self):
